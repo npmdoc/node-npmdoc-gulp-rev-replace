@@ -1,0 +1,235 @@
+<html><head></head><body><div class="apidocDiv">
+<style>
+/*csslint
+*/
+.apidocDiv {
+    background: #fff;
+    font-family: Arial, Helvetica, sans-serif;
+}
+.apidocDiv a[href] {
+    color: #33f;
+    font-weight: bold;
+    text-decoration: none;
+}
+.apidocDiv a[href]:hover {
+    text-decoration: underline;
+}
+.apidocCodeCommentSpan {
+    background: #bbf;
+    color: #000;
+    display: block;
+}
+.apidocCodeKeywordSpan {
+    color: #d00;
+    font-weight: bold;
+}
+.apidocCodePre {
+    background: #eef;
+    border: 1px solid;
+    color: #777;
+    padding: 5px;
+    white-space: pre-wrap;
+}
+.apidocFooterDiv {
+    margin-top: 20px;
+    text-align: center;
+}
+.apidocModuleLi {
+    margin-top: 10px;
+}
+.apidocSectionDiv {
+    border-top: 1px solid;
+    margin-top: 20px;
+}
+.apidocSignatureSpan {
+    color: #777;
+    font-weight: bold;
+}
+</style>
+<h1>api documentation for
+    <a href="https://github.com/jamesknelson/gulp-rev-replace#readme">gulp-rev-replace (v0.4.3)</a>
+</h1>
+<h4>Rewrite occurences of filenames which have been renamed by gulp-rev</h4>
+<div class="apidocSectionDiv"><a href="#apidoc.tableOfContents" id="apidoc.tableOfContents"><h1>table of contents</h1></a><ol>
+
+    <li class="apidocModuleLi"><a href="#apidoc.module.gulp-rev-replace">module gulp-rev-replace</a><ol>
+
+        <li>
+
+            <a class="apidocElementLiA" href="#apidoc.element.gulp-rev-replace.gulp-rev-replace">
+            function <span class="apidocSignatureSpan"></span>gulp-rev-replace
+            <span class="apidocSignatureSpan">(options)</span>
+            </a>
+
+        </li>
+
+        <li>
+
+            <span class="apidocSignatureSpan">object <span class="apidocSignatureSpan">gulp-rev-replace.</span>utils</span>
+
+        </li>
+
+    </ol></li>
+
+    <li class="apidocModuleLi"><a href="#apidoc.module.gulp-rev-replace.utils">module gulp-rev-replace.utils</a><ol>
+
+        <li>
+
+            <a class="apidocElementLiA" href="#apidoc.element.gulp-rev-replace.utils.byLongestUnreved">
+            function <span class="apidocSignatureSpan">gulp-rev-replace.utils.</span>byLongestUnreved
+            <span class="apidocSignatureSpan">(a, b)</span>
+            </a>
+
+        </li>
+
+    </ol></li>
+
+</ol></div>
+
+<div class="apidocSectionDiv">
+<h1><a href="#apidoc.module.gulp-rev-replace" id="apidoc.module.gulp-rev-replace">module gulp-rev-replace</a></h1>
+
+
+    <h2>
+        <a href="#apidoc.element.gulp-rev-replace.gulp-rev-replace" id="apidoc.element.gulp-rev-replace.gulp-rev-replace">
+        function <span class="apidocSignatureSpan"></span>gulp-rev-replace
+        <span class="apidocSignatureSpan">(options)</span>
+        </a>
+    </h2>
+    <ul>
+    <li>description and source-code<pre class="apidocCodePre">function plugin(options) {
+  var renames = [];
+  var cache = [];
+
+  options = options || {};
+
+  if (!options.canonicalUris) {
+    options.canonicalUris = true;
+  }
+
+  options.prefix = options.prefix || '';
+
+  options.replaceInExtensions = options.replaceInExtensions || ['.js', '.css', '.html', '.hbs'];
+
+  return through.obj(function collectRevs(file, enc, cb) {
+    if (file.isNull()) {
+      this.push(file);
+      return cb();
+    }
+
+    if (file.isStream()) {
+      this.emit('error', new gutil.PluginError('gulp-rev-replace', 'Streaming not supported'));
+      return cb();
+    }
+
+    // Collect renames from reved files.
+    if (file.revOrigPath) {
+      renames.push({
+        unreved: fmtPath(file.revOrigBase, file.revOrigPath),
+        reved: options.prefix + fmtPath(file.base, file.path)
+      });
+    }
+
+    if (options.replaceInExtensions.indexOf(path.extname(file.path)) &gt; -1) {
+      // file should be searched for replaces
+      cache.push(file);
+    } else {
+      // nothing to do with this file
+      this.push(file);
+    }
+
+    cb();
+  }, function replaceInFiles(cb) {
+    var stream = this;
+
+    if (options.manifest) {
+      // Read manifest file for the list of renames.
+      options.manifest.on('data', function (file) {
+        var manifest = JSON.parse(file.contents.toString());
+        Object.keys(manifest).forEach(function (srcFile) {
+          renames.push({
+            unreved: canonicalizeUri(srcFile),
+            reved: options.prefix + canonicalizeUri(manifest[srcFile])
+          });
+        });
+      });
+      options.manifest.on('end', replaceContents);
+    }
+    else {
+      replaceContents();
+    }
+
+    function replaceContents() {
+      renames = renames.sort(utils.byLongestUnreved);
+
+      // Once we have a full list of renames, search/replace in the cached
+      // files and push them through.
+      cache.forEach(function replaceInFile(file) {
+        var contents = file.contents.toString();
+
+        renames.forEach(function replaceOnce(rename) {
+          var unreved = options.modifyUnreved ? options.modifyUnreved(rename.unreved) : rename.unreved;
+          var reved = options.modifyReved ? options.modifyReved(rename.reved) : rename.reved;
+          contents = contents.split(unreved).join(reved);
+          if (options.prefix) {
+            contents = contents.split('/' + options.prefix).join(options.prefix + '/');
+          }
+        });
+
+        file.contents = new Buffer(contents);
+        stream.push(file);
+      });
+
+      cb();
+    }
+  });
+
+  function fmtPath(base, filePath) {
+    var newPath = path.relative(base, filePath);
+
+    return canonicalizeUri(newPath);
+  }
+
+  function canonicalizeUri(filePath) {
+    if (path.sep !== '/' &amp;&amp; options.canonicalUris) {
+      filePath = filePath.split(path.sep).join('/');
+    }
+
+    return filePath;
+  }
+}</pre></li>
+    <li>example usage<pre class="apidocCodePre">n/a</pre></li>
+    </ul>
+
+
+
+
+</div>
+
+<div class="apidocSectionDiv">
+<h1><a href="#apidoc.module.gulp-rev-replace.utils" id="apidoc.module.gulp-rev-replace.utils">module gulp-rev-replace.utils</a></h1>
+
+
+    <h2>
+        <a href="#apidoc.element.gulp-rev-replace.utils.byLongestUnreved" id="apidoc.element.gulp-rev-replace.utils.byLongestUnreved">
+        function <span class="apidocSignatureSpan">gulp-rev-replace.utils.</span>byLongestUnreved
+        <span class="apidocSignatureSpan">(a, b)</span>
+        </a>
+    </h2>
+    <ul>
+    <li>description and source-code<pre class="apidocCodePre">function byLongestUnreved(a, b) {
+  return b.unreved.length - a.unreved.length;
+}</pre></li>
+    <li>example usage<pre class="apidocCodePre">n/a</pre></li>
+    </ul>
+
+
+</div>
+
+<div class="apidocFooterDiv">
+    [ this document was created with
+    <a href="https://github.com/kaizhu256/node-utility2" target="_blank">utility2</a>
+    ]
+</div>
+</div>
+</body></html>
